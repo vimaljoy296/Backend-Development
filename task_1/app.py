@@ -1,5 +1,6 @@
 # Constellation Explorer API
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify ,redirect
+import requests
 
 app = Flask(__name__)
 
@@ -63,77 +64,59 @@ def delete_constellation(name):
     constellations = [c for c in constellations if c['name'].lower() != name.lower()]
     return jsonify({'message': f'Constellation {name} deleted successfully'}), 200
 
-# 5. Filter constellations by hemisphere and area (Query String)
-@app.route('/constellations/filter', methods=['GET'])
+# 5. Filter constellations by hemisphere and area
+@app.route('/constellations/filters', methods=['GET'])
 def filter_constellations():
     hemisphere = request.args.get('hemisphere')
-    min_area = request.args.get('min_area', type=int)
-    max_area = request.args.get('max_area', type=int)
+    min_area = request.args.get('min_area', type=int, default=0)
     
-    filtered = constellations
-    if hemisphere:
-        filtered = [c for c in filtered if c['hemisphere'].lower() == hemisphere.lower()]
-    if min_area is not None:
-        filtered = [c for c in filtered if c['area'] >= min_area]
-    if max_area is not None:
-        filtered = [c for c in filtered if c['area'] <= max_area]
+    filtered_constellations = [
+        c for c in constellations
+        if (hemisphere is None or hemisphere.lower() in c['hemisphere'].lower()) and
+           c['area'] >= min_area
+    ]
     
-    return jsonify(filtered)
+    return jsonify(filtered_constellations), 200
+
 
 # 6. View the main stars of a constellation specified by name
 @app.route('/constellations/<name>/stars', methods=['GET'])
 def get_main_stars(name):
-    for c in constellations:
-        if c['name'].lower() == name.lower():
-            return jsonify({'name': c['name'], 'main_stars': c['main_stars']})
-    return jsonify({'error': 'Constellation not found'}), 404
-
+    constellation = next((c for c in constellations if c['name'].lower() == name.lower()), None)
+    
+    if constellation:
+        return jsonify({'main_stars': constellation['main_stars']}), 200
+    else:
+        # Redirect to the corresponding HTTP Cat image for 404 error
+        return redirect(get_http_cat(404), code=302)
+    
 # 7. Partially update a constellation specified by name
 @app.route('/constellations/<name>', methods=['PATCH'])
 def update_constellation(name):
-    data = request.json
-    for c in constellations:
-        if c['name'].lower() == name.lower():
-            if 'main_stars' in data:
-                c['main_stars'] = data['main_stars']
-            if 'hemisphere' in data:
-                c['hemisphere'] = data['hemisphere']
-            if 'area' in data:
-                c['area'] = data['area']
-            if 'origin' in data:
-                c['origin'] = data['origin']
-            return jsonify(c), 200
-    return jsonify({'error': 'Constellation not found'}), 404
-
-# 8. For a constellation specified by name, view the image
-# You might have to use an image generator API - try https://imagepig.com/
-
-@app.route('/constellations/<name>/image', methods=['GET'])
-def get_constellation_image(name):
-    for c in constellations:
-        if c['name'].lower() == name.lower():
-            # You can integrate a real image API here if desired
-            image_url = f"https://example.com/images/{name.lower()}.jpg"  # Placeholder URL
-            return jsonify({'name': c['name'], 'image_url': image_url})
-    return jsonify({'error': 'Constellation not found'}), 404
-
-
-# 9. Add a new custom endpoint (e.g., Find constellations by origin)
-@app.route('/constellations/origin/<origin>', methods=['GET'])
-def get_constellations_by_origin(origin):
-    filtered = [c for c in constellations if c['origin'].lower() == origin.lower()]
-    if filtered:
-        return jsonify(filtered)
+    constellation = next((c for c in constellations if c['name'].lower() == name.lower()), None)
+    
+    if constellation:
+        data = request.get_json()
+        
+        if 'main_stars' in data:
+            constellation['main_stars'] = data['main_stars']
+        if 'origin' in data:
+            constellation['origin'] = data['origin']
+        if 'area' in data:
+            constellation['area'] = data['area']
+        if 'hemisphere' in data:
+            constellation['hemisphere'] = data['hemisphere']
+        
+        return jsonify(constellation), 200
     else:
-        return jsonify({'error': 'No constellations found with that origin'}), 404
+        # Redirect to the corresponding HTTP Cat image for 404 error
+        return redirect(get_http_cat(404), code=302)
 
 # 10. Double check that all the endpoints return the appropriate status codes.
 # For errors, display the status code using an HTTP Cat - https://http.cat/
-@app.route('/http-cat-example', methods=['GET'])
-def http_cat_example():
-    # This endpoint demonstrates error status codes using HTTP Cat
-    return jsonify({'message': 'This endpoint is a demonstration of HTTP status codes'}), 400  # Example 400 error
-
+@app.errorhandler(404)
+def not_found_error(error):
+    return redirect("https://http.cat/404")
 
 if __name__ == '__main__':
     app.run(debug=True)
